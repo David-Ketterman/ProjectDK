@@ -1,0 +1,376 @@
+000100000000/*____________________________________________________________________________*/
+000200000000/*                                                                            */
+000300000000/*  Description:  e-mail a file +
+000400000000/*                                                                            */
+000500000000/*  (c)Copyright 2000 by Innovative Outsourcing, Inc.                     */
+000600000000/*                                                                            */
+000700000000/*    Created by:  JALLEN - November 08, 2000 +
+000800011018/*                                                                            */
+000900011018/* 10/18/01 DLK - ADD DEFAULT - SEND TO *CURRENT USER                         */
+001000021210/* 12/10/02 DLK - ADD .ZIP OPTION TO ZIP THE FILE                             */
+001100021217/*                *NOTE: A COPY OF THE EBCDIC TO ASCII TRANSLATION            */
+001200021217/*                       TABLE IS USED IN THE PKZIP COMMAND CALLED            */
+001300021217/*                       USASCIIDK THAT HAS THE PIPE CHARACTER "|"            */
+001400021217/*                       DEFINED. PKZIP DOES NOT SUPPORT SPECIAL              */
+001500021217/*                       CHARACTERS. INSTEAD OF THE DEFAULT "*INTERNAL"       */
+001600021217/*                       FOR DATA I SPECIFY "USASCIIDK" AS THE                */
+001700021217/*                       TRANSLATION TABLE.                                   */
+001800031230/* 12/30/03 DLK - REMOVE CONFIRMATION OF DELIVERY, REACHED 9999 MAX.          */
+001900140228/* 02/24/11 DLK - ADD CC EMAIL OPTION                                         */
+002000140228/* 02/28/14 JVA - CHECK GBSTEST DTAARA                                        */
+002100150804/* 08/04/15 DLK - fix code to add user to directory entry and convert         */
+002200150804/*                to use subroutine                                           */
+002300150814/* 08/14/15 DLK - remove translation table override for pkzip. new            */
+002400150814/*                version does not need this.                                 */
+002500150814/*                (** code aded now but commented out, will not               */
+002600150814/*                be used until everything has been moved to the new          */
+002700150814/*                system. I will have to update this at that time.)           */
+002800151022/* 10/22/15 DLK - remove translation table override for pkzip. new            */
+002900151022/*                version does not need this.                                 */
+003000170110/* 01/10/17 DLK - add storepath(*No) to zip so the complete path              */
+003100170110/*                is not included.                                            */
+003200170830/* 08/29/17 DLK - add subject and convert to use link for delivery.           */
+003300170830/*                Also change to zip the files in the ifs instead             */
+003400170911/*                of as a PCDOC so they can be opened with the PL             */
+003500170830/*                program in the link. Also change the zip choice             */
+003600170830/*                to be a seperate parm instead of a file extension           */
+003700170830/*                because the extension is still needed when a file           */
+003800170830/*                is zipped.                                                  */
+003900170911/* 09/07/17 DLK - INCREASE SIZE OF TOFILE PARM FROM 10 TO 50                  */
+003901170912/* 09/12/17 DLK - Have to send non-externally defined files differently       */
+003902170912/*                since they have a ccsid of 65535. Must copy them to         */
+003903170912/*                an externally defined file which will have a ccsid          */
+003904170912/*                of 37 then send that data instead.                          */
+003905170912/*                                                                            */
+003906170912/*        ***********************************************************         */
+003907170912/*  Critial note to programmers:                                              */
+003908170912/*                 The file DSPFDP is a copy of the output file               */
+003909170912/*                 from the DSPFD command to *OUTFILE with *ATR and           */
+003910170912/*                 *PF. It is stored in Y2KDDS as an object only. It          */
+003911170912/*                 is needed for the DCLF to work in this program so          */
+003912170912/*                 it MUST always remain in Y2KDDS and if there are           */
+003913170912/*                 any OS updates that change it, it will need to be          */
+003914170912/*                 recreated in Y2KDDS.                                       */
+003915170912/*        ***********************************************************         */
+003916170912/*                                                                            */
+003917170912/*                                                                            */
+004000150814/*____________________________________________________________________________*/
+004100000000
+004200170829             PGM        PARM(&FILE &LIB &EMAIL &CC1 &CC2 &CC3 &CC4 +
+004300170829                          &CC5 &CC6 &CC7 &CC8 &CC9 &CC10 &TOFILE +
+004400170830                          &EXT &ZIP &SUBJECT &MSGTXT)
+004500000000
+004600001108             DCL        VAR(&FILE) TYPE(*CHAR) LEN(10) /* FILE NAME */
+004700001108             DCL        VAR(&LIB ) TYPE(*CHAR) LEN(10) /* LIB NAME  */
+004800001108             DCL        VAR(&EMAIL) TYPE(*CHAR) LEN(40) /* MAIL ADDR */
+004900110224             DCL        VAR(&CC1) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005000110224             DCL        VAR(&CC2) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005100110224             DCL        VAR(&CC3) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005200110224             DCL        VAR(&CC4) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005300110224             DCL        VAR(&CC5) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005400110224             DCL        VAR(&CC6) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005500110224             DCL        VAR(&CC7) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005600110224             DCL        VAR(&CC8) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005700110224             DCL        VAR(&CC9) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005800110224             DCL        VAR(&CC10) TYPE(*CHAR) LEN(40) /* CC ADDR */
+005900170907             DCL        VAR(&TOFILE) TYPE(*CHAR) LEN(50) /* TOFILE */
+006000011018             DCL        VAR(&EXT) TYPE(*CHAR) LEN(4) /* EXTENSION */
+006100170830             DCL        VAR(&ZIP) TYPE(*CHAR) LEN(1) /* Zip the file +
+006200170830                          ? Y or blank */
+006300170907             DCL        VAR(&PCFILE) TYPE(*CHAR) LEN(55) /* PC FILE */
+006400170829             DCL        VAR(&SUBJECT) TYPE(*CHAR) LEN(44) /* TEXT */
+006500170829             DCL        VAR(&MSGTXT) TYPE(*CHAR) LEN(256) /* TEXT */
+006600001208             DCL        VAR(&USER) TYPE(*CHAR) LEN(10) /* USER */
+006700011018             DCL        VAR(&USEREMAIL) TYPE(*CHAR) LEN(30) /* +
+006800011018                          sending user's email addr */
+007000021210             DCL        VAR(&PKZINLIST) TYPE(*CHAR) LEN(1) VALUE('N')
+007100170829             DCL        VAR(&MDTIME_FN) TYPE(*CHAR) LEN(16) /* Month +
+007200170829                          day and time used for file name */
+007300170829             DCL        VAR(&SFNAME) TYPE(*CHAR) LEN(256) /* stream +
+007400170830                          file name for file */
+007500170830             DCL        VAR(&SFNAMEZIP) TYPE(*CHAR) LEN(256) /* +
+007600170830                          stream file name with zip */
+007700170829             DCL        VAR(&SFNAMEPUI) TYPE(*CHAR) LEN(256) /* +
+007800170830                          stream file name for file in PUI Format */
+007900170829             DCL        VAR(&SFDIR1) TYPE(*CHAR) LEN(100) /* stream +
+008000170829                          file directory 1 */
+008100170829             DCL        VAR(&SFDIR2) TYPE(*CHAR) LEN(100) /* stream +
+008200170829                          file directory 2*/
+008300170829             DCL        VAR(&SFDIR3) TYPE(*CHAR) LEN(100) /* stream +
+008400170829                          file directory 3*/
+008500170829             DCL        VAR(&PUI1) TYPE(*CHAR) LEN(200) +
+008600170829                          VALUE('http://prof.gbsio.int/profoundui/sta+
+008700170829                          rt?pgm=GBSPGM/GBS0019C&p1=') /* PUI path +
+008800170829                          part 1 */
+008900170829             DCL        VAR(&PUI2) TYPE(*CHAR) LEN(50) +
+009000170829                          VALUE('&l1=250') /* PUI path part 2 */
+009100170829             DCL        VAR(&emailmsg) TYPE(*CHAR) LEN(5000)
+009200170829             DCL        VAR(&DATETIME) TYPE(*CHAR) LEN(20)
+009201170912
+009202170912/* DSPFDP is from DSPFD *outfile *ATR *PF. A copy in Y2KDDS is    */
+009204170912/* needed to allow the DCLF statement to work since all use of    */
+009205170912/* the output is from QTEMP.                                      */
+009206170912             DCLF       FILE(Y2KDDS/DSPFDP) OPNID(DSPFDP)
+009300011018
+009400150804             RTVJOBA    USER(&USER)
+009500000000
+009600001108             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(ERROR))
+009700000000
+009800001108             CHKOBJ     OBJ(&LIB/&FILE) OBJTYPE(*FILE)
+009900001108             MONMSG     MSGID(CPF9801) EXEC(GOTO CMDLBL(ERROR))
+010000001122
+010100001122             IF         COND(&TOFILE *EQ ' ') THEN(CHGVAR +
+010200001122                          VAR(&TOFILE) VALUE('FILE'))
+010300001122
+010400170829             CHGVAR     VAR(&PCFILE) VALUE(%TRIM(&TOFILE))
+010500011018             CHGVAR     VAR(&PCFILE) VALUE(&PCFILE *TCAT &EXT)
+010600001110
+010700170829             IF         COND(&MSGTXT *EQ ' ') THEN(CHGVAR +
+010800170829                          VAR(&MSGTXT) VALUE('.'))
+010900170829
+011000170912/* if subject is blank, use pc file name */
+011100170912             IF         COND(&SUBJECT *EQ ' ') THEN(CHGVAR +
+011200170912                          VAR(&SUBJECT) VALUE(%TRIM(&PCFILE)))
+011300021210
+011400011018/* GET EMAIL ADDR FOR THE SENDING USER */
+011500011018             IF         COND(&EMAIL = '*CURRENT') THEN(DO)
+011600011018             CALL       PGM(GETADDR) PARM(&USER &USEREMAIL)
+011700011018               IF         COND(&USEREMAIL *NE 'ERROR') THEN(DO)
+011800011018               CHGVAR     VAR(&EMAIL) VALUE(&USEREMAIL)
+011900011018               ENDDO
+012000011018             ENDDO
+012100140228
+012200140228/* SAFETY CHECK - IF DTAARA EXIST THEN THIS IS GBSTEST SIGNON */
+012300140228             CHKOBJ     OBJ(EMAILUSER) OBJTYPE(*DTAARA)
+012400140228             MONMSG     MSGID(CPF9801) EXEC(DO)
+012500170829             GOTO       CMDLBL(SKIPADR)
+012600140228             ENDDO
+012700170829
+012800140228             RTVDTAARA  DTAARA(EMAILUSER *ALL) RTNVAR(&USER)
+012900140228             CALL       PGM(GETADDR) PARM(&USER &EMAIL)
+013000170829
+013100170829skipadr:
+013200170829
+013300170829
+013400170829/* send as a link */
+013500170829             CALLSUBR   SUBR(#SEND)
+013600001108
+013700001108             RETURN
+013800001108
+013900170830/**================================================================**/
+014000170830/* GLOBAL EXCEPTION HANDLER                                         */
+014100170830/**================================================================**/
+014200170829 ERROR:      CALL       PGM(QMHRSNEM) PARM('    ' X'00000000')
+014300170829             MONMSG     MSGID(CPF0000)
+014400170829
+014500170829             SNDPGMMSG  MSGID(CPF9898) MSGF(QCPFMSG) +
+014600170829                          MSGDTA('Error(s) Occured, See previously +
+014700170829                          listed messages') MSGTYPE(*ESCAPE)
+014800170829
+014900170829
+015000170829/*****************************************************************/
+015100170829/* Send the file as a link in the email to call a profound logic */
+015200170829/* program that will open the file in the IFS delivery folder.   */
+015300170829/*                                                               */
+015400170829/*****************************************************************/
+015500170829             SUBR       SUBR(#SEND)
+015600170829
+015700170829/* CREATE STREAMFILE NAME */
+015800170829/* 400 VERSION: SLASHES GO FORWARD  */
+015900170829
+016000170829/* USE MMDDHHMMSSXXXXXX FROM JOB DATE-TIME FIELD */
+016100170829             RTVJOBA    DATETIME(&DATETIME)
+016200170829             CHGVAR     VAR(&MDTIME_FN) VALUE(%SST(&DATETIME 5 16))
+016300170829
+016400170829/* STREAMFILE NAME                                 */
+016500170829/* /EPDF/USERSPDF/&USERID/EFILE/MONTH¦DAY¦TIME/&PCFILE  */
+016600170829             CHGVAR     VAR(&SFNAME) VALUE('/EPDF/USERSPDF/' *TCAT +
+016700170829                          %TRIM(&USER) *TCAT '/EFILE/' *TCAT +
+016800170829                          %TRIM(&MDTIME_FN) *TCAT '/' *TCAT +
+016900170829                          %TRIM(&PCFILE))
+017000170829
+017100170829/* PUI VERSION: WITHOUT EPDF/USERSPDF/ DIRECTORY   */
+017200170829/* /&USERID/EFILE/MONTH¦DAY¦TIME/&PCFILE  */
+017300170829             CHGVAR     VAR(&SFNAMEPUI) VALUE(%TRIM(&USER) *TCAT +
+017400170829                          '/EFILE/' *TCAT %TRIM(&MDTIME_FN) *TCAT +
+017500170829                          '/' *TCAT %TRIM(&PCFILE))
+017600170829
+017700170829
+017800170829/* MAKE SURE THE FOLDER EXISTS */
+017900170829             CHGVAR     VAR(&SFDIR1) VALUE('/EPDF/USERSPDF/' +
+018000170829                          *TCAT %TRIM(&USER))
+018100170829             CRTDIR     DIR(&SFDIR1)
+018200170829             MONMSG     MSGID(CPFA0A0)
+018300170829
+018400170829             CHGVAR     VAR(&SFDIR2) VALUE('/EPDF/USERSPDF/' *TCAT +
+018500170829                          %TRIM(&USER) *TCAT '/EFILE/')
+018600170829             CRTDIR     DIR(&SFDIR2)
+018700170829             MONMSG     MSGID(CPFA0A0)
+018800170829
+018900170829             CHGVAR     VAR(&SFDIR3) VALUE('/EPDF/USERSPDF/' *TCAT +
+019000170829                          %TRIM(&USER) *TCAT '/EFILE/' *TCAT +
+019100170829                          %TRIM(&MDTIME_FN) *TCAT '/')
+019200170829             CRTDIR     DIR(&SFDIR3)
+019300170829             MONMSG     MSGID(CPFA0A0)
+019400170829
+019500170911/* Copy the file to the IFS delivery folder as ASCII               */
+019501170912
+019502170912 /* check to see if file is program described (ccsid 65535) */
+019503170912 /* if it is then it needs to be converted to ccsid 37      */
+019505170912
+019506170912             CALLSUBR   SUBR(#chkccsid)
+019700170829
+019800170912             CPYTOIMPF  FROMFILE(&LIB/&FILE) TOSTMF(&SFNAME) +
+019900170912                          MBROPT(*REPLACE) STMFCCSID(*PCASCII) +
+020000170912                          RCDDLM(*CRLF) DTAFMT(*FIXED) RMVBLANK(*EOR)
+020100170829
+020200170830/* if zip was selected, zip the file already in the IFS delivery     */
+020300170830/* folder                                                            */
+020400170830             IF         COND(&ZIP = 'Y' *OR &ZIP = 'y') THEN(DO)
+020500170830             CALLSUBR   SUBR(#zip)
+020600170830             ENDDO
+020700170830
+020800170829
+020900170829/* VERIFY USER IS ENROLLED IN SYSTEM DISTRIBUTION DIRECTORY       */
+021000170829             DSPDIRE    USRID(&user S1039822) OUTPUT(*OUTFILE) +
+021100170829                          OUTFILE(QTEMP/DIRELIST)
+021200170829             MONMSG     MSGID(CPF9006) EXEC(DO)
+021300170829             ADDDIRE    USRID(&user S1039822) USRD('Entry +
+021400170829                          added by EFILE command') +
+021500170829                          USER(&user) NFYMAIL(*NOMAIL) +
+021600170829                          MSFSRVLVL(*SYSMS) PREFADR(*SMTP)
+021601170913             MONMSG     MSGID(CPF9082)
+021602170913             DLYJOB     DLY(3)
+021700170829             ENDDO
+021800170829             DLTF       FILE(QTEMP/DIRELIST)
+021900170829             MONMSG     MSGID(CPF0000)
+022000170829
+022100170829
+022200170829/* EDIT CODES FOR USE IN LONMSG OF SNDDST -         */
+022300170829/* :/N = NEW LINE - CARRIER RETURN                  */
+022400170829/* :/P = NEW PARAGRAPH - NEW LINE + BLANK LINE      */
+022500170829
+022600170829             CHGVAR     VAR(&emailmsg) VALUE('Here is a link to your +
+022700170829                          file. It will be valid for 30 days. :/P' +
+022800170829                          || %TRIM(&PUI1) || %TRIM(&SFNAMEPUI) || +
+022900170829                          %TRIM(&PUI2) || ' :/P' || %TRIM(&MSGTXT))
+023000170829
+023100170829/* IF USER REQUESTED TO RECEIVE IT WAS NOT IN THE EMAIL XREF FILE  */
+023200170829/* SEND IT TO OPERATIONS                                        */
+023300170829             IF         COND(&USEREMAIL *EQ 'ERROR') THEN(DO)
+023400170829             CHGVAR     VAR(&SUBJECT) VALUE('No EMAIL Address for  ' +
+023500170829                          |> &user)
+023600170829             CHGVAR     VAR(&EMAILMSG) VALUE(%TRIM(&EMAILMSG) *TCAT +
+023700170829                          ' User ID--> ' || &user || ' tried +
+023800170829                          to EMAIL this file but they are not set +
+023900170829                          up in the EMAIL address file. Please set +
+024000170829                          them up and forward this email to them +
+024100170829                          after removing this text.')
+024200170829             SNDDST     TYPE(*LMSG) +
+024300170829                          TOINTNET((AS400OPERATORS@GBSIO.NET)) +
+024400170829                          DSTD(&SUBJECT) LONGMSG(&EMAILMSG) +
+024500170829                          SNDFMT(*NOTE) SUBJECT(&SUBJECT)
+024600170829             GOTO       CMDLBL(SKPPDFSND)
+024700170829             ENDDO
+024800170829
+024900170829
+025000170829/* FINALLY, SEND THE EMAIL AS A LINK TO THE PROFOUND LOGIC      */
+025100170829/* PROGRAM WITH THE FILE PATH TO THE file AS A PARM.            */
+025200170829             SNDDST     TYPE(*LMSG) TOINTNET((&EMAIL) (&CC1 *CC) +
+025300170829                          (&CC2 *CC) (&CC3 *CC) (&CC4 *CC) (&CC5 +
+025400170829                          *CC) (&CC6 *CC) (&CC7 *CC) (&CC8 *CC) +
+025500170829                          (&CC9 *CC) (&CC10 *CC)) DSTD('File from +
+025600170829                          EFILE') LONGMSG(&EMAILMSG) SNDFMT(*NOTE) +
+025700170829                          SUBJECT(&SUBJECT)
+025800170829
+025900170829 SKPPDFSND:  SNDPGMMSG  MSGID(CPF9898) MSGF(QCPFMSG) MSGDTA('File' +
+026000170829            |> &FILE |> 'sent to' |> &EMAIL |> 'as' |> &PCFILE)
+026100170829
+026101170912/* remove the T5000 work file if it was used                        */
+026102170912             DLTF       FILE(QTEMP/T5000)
+026103170912             MONMSG     MSGID(CPF0000)
+026104170912
+026200170829             ENDSUBR
+026300170829
+026400170829/****************************************************************/
+026500170829/* zip the file                                                 */
+026600170829/****************************************************************/
+026700170829             SUBR       SUBR(#zip)
+026800170830
+026900170830/* add .ZIP to file names used */
+027000170830             CHGVAR     VAR(&SFNAMEPUI) VALUE(&SFNAMEPUI *TCAT '.ZIP')
+027100170830             CHGVAR     VAR(&SFNAMEZIP) VALUE(&SFNAME *TCAT '.ZIP')
+027200170830
+027300170830             ADDLIBLE   LIB(PKZIP)
+027400170830             MONMSG     MSGID(CPF2103) EXEC(CHGVAR VAR(&PKZINLIST) +
+027500170830                          VALUE('Y'))
+027600170830
+027700170830/* Zip it  */
+027800170830             PKZIP      ARCHIVE(&SFNAMEZIP) TYPARCHFL(*IFS) +
+027900170830                          FILES(&SFNAME) TYPFL2ZP(*IFS) +
+028000170830                          STOREPATH(*NO) MSGTYPE(*SEND *NONE) +
+028100170830                          VERBOSE(*NONE) EXTRAFLD(*NO)
+028200170830
+028300170830             IF         COND(&PKZINLIST = 'N') THEN(RMVLIBLE +
+028400170830                          LIB(PKZIP))
+028500170830
+028600170830/* remove the original non zipped file from the IFS delivery folder */
+028700170912             RMVLNK     OBJLNK(&SFNAME)
+028701170912             MONMSG     MSGID(CPF0000)
+028702170912
+028900170829             ENDSUBR
+029000170829
+029001170912/****************************************************************/
+029002170912/* check file ccsid                                             */
+029003170912/****************************************************************/
+029004170912             SUBR       SUBR(#CHKCCSID)
+029005170912
+029006170912             DLTF       FILE(QTEMP/DSPFDP)
+029007170912             MONMSG     MSGID(CPF0000)
+029008170912
+029009170912             DLTF       FILE(QTEMP/T5000)
+029010170912             MONMSG     MSGID(CPF0000)
+029011170912
+029012170912/* display the file description to an outfile */
+029013170912/* *****************************************************************/
+029014170912/* NOTE - the file "DSPFDP" MUST be kept in Y2KDDS at all times.   */
+029015170912/*        It is a copy of the outfile created by the DSPFD         */
+029016170912/*        statement below. Any OS or PTF changes that alter it     */
+029017170912/*        will require the saved copy in Y2KDDS to be recreated.   */
+029018170912/* *****************************************************************/
+029019170912
+029020170912             DSPFD      FILE(&LIB/&FILE) TYPE(*ATR) OUTPUT(*OUTFILE) +
+029021170912                          FILEATR(*PF) OUTFILE(QTEMP/DSPFDP)
+029022170912
+029023170912             OVRDBF     FILE(DSPFDP) TOFILE(QTEMP/DSPFDP)
+029024170912
+029025170912/* read the file description */
+029026170912 READ1:      RCVF       OPNID(DSPFDP)
+029027170912             MONMSG     MSGID(CPF0864) EXEC(GOTO CMDLBL(END1))
+029028170912
+029029170912/* if the file is non-externally defined (ccsid 65535)   */
+029030170912/* then copy it to an external definition where the      */
+029031170912/* ccsid will be 37 so it translates properly to the     */
+029032170912/* IFS and send the external definition instead          */
+029034170912
+029035170912             IF         COND(&DSPFDP_PHFLS = 'N' *OR &DSPFDP_PHCSID +
+029036170912                          = 65535) THEN(DO)
+029037170912             RUNSQL     SQL('CREATE TABLE QTEMP/T5000 (FIELDA CHAR +
+029038170912                          (5000 ) NOT NULL WITH DEFAULT)') +
+029039170912                          COMMIT(*NONE)
+029040170912             CPYF       FROMFILE(&LIB/&FILE) TOFILE(QTEMP/T5000) +
+029041170912                          MBROPT(*REPLACE) FMTOPT(*NOCHK)
+029042170912             CHGVAR     VAR(&FILE) VALUE(T5000)
+029043170912             CHGVAR     VAR(&LIB) VALUE(QTEMP)
+029044170913  /*         CHGVAR     VAR(&ZIP) VALUE('Y')      */
+029045170912             ENDDO
+029046170912
+029047170912/* remove the temp dspfdp file  */
+029049170912             CLOSE      OPNID(DSPFDP)
+029050170912             DLTF       FILE(QTEMP/DSPFDP)
+029051170912             MONMSG     MSGID(CPF0000)
+029052170912
+029053170912 END1:
+029054170912             ENDSUBR
+029055170912
+029100170829             ENDPGM
