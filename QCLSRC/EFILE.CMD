@@ -12,7 +12,7 @@
 001200170830/* 08/29/17 DLK - ADD SUBJECT PARM AND MAKE THE ZIP CHOICE A                  */
 001300170830/*                SEPERATE OPTION.                                            */
 001400170907/* 09/07/17 DLK - INCREASE SIZE OF TOFILE PARM                                */
-001500240610/*   TEST 6/10/24 test again                                                  */
+001500240617/*   TEST 6/17/24                                                             */
 001600000000/*____________________________________________________________________________*/
 001700000000
 001800001110             CMD        PROMPT('E-Mail a File')
